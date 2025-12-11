@@ -4,11 +4,13 @@ import { StatusBar } from 'expo-status-bar';
 import { useFrameworkReady } from '@/hooks/useFrameworkReady';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { ActivityIndicator, View } from 'react-native';
+import { useNotifications } from '@/hooks/useNotifications';
 
 function NavigationHandler() {
   const { user, loading } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+  useNotifications();
 
   useEffect(() => {
     if (loading) return;

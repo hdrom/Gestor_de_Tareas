@@ -10,10 +10,17 @@ import {
   RefreshControl,
   Modal,
   Alert,
+  ScrollView,
 } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
-import { Check, Plus, Trash2, LogOut, Edit2 } from 'lucide-react-native';
+import { Check, Plus, Trash2, LogOut, Edit2, Bell } from 'lucide-react-native';
+import { useNotifications } from '@/hooks/useNotifications';
+import {
+  scheduleTaskNotifications,
+  getSavedNotificationTime,
+  saveNotificationTime,
+} from '@/services/notificationService';
 
 type MonthlyTask = {
   id: string;
@@ -30,11 +37,16 @@ type MonthlyTask = {
 
 export default function MonthlyTasksScreen() {
   const { user, signOut } = useAuth();
+  const { requestPermissions, scheduleNotification } = useNotifications();
   const [tasks, setTasks] = useState<MonthlyTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [editingNotes, setEditingNotes] = useState<string | null>(null);
   const [notesValue, setNotesValue] = useState('');
+  const [notificationModalVisible, setNotificationModalVisible] = useState(false);
+  const [notificationHour, setNotificationHour] = useState(9);
+  const [notificationMinute, setNotificationMinute] = useState(0);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const currentMonth = new Date().getMonth() + 1;
   const currentYear = new Date().getFullYear();
 
@@ -55,6 +67,9 @@ export default function MonthlyTasksScreen() {
 
   useEffect(() => {
     loadTasks();
+    const savedTime = getSavedNotificationTime();
+    setNotificationHour(savedTime.hour);
+    setNotificationMinute(savedTime.minute);
   }, []);
 
   const loadTasks = async () => {
@@ -124,6 +139,38 @@ export default function MonthlyTasksScreen() {
     } catch (error) {
       console.error('Error deleting task:', error);
     }
+  };
+
+  const setupNotifications = async () => {
+    const granted = await requestPermissions();
+    if (!granted) {
+      Alert.alert(
+        'Permiso denegado',
+        'Se requieren permisos para mostrar notificaciones'
+      );
+      return;
+    }
+
+    const incompleteTasks = tasks.filter((t) => !t.completed);
+    if (incompleteTasks.length === 0) {
+      Alert.alert('Sin tareas', 'No hay tareas pendientes para notificar');
+      return;
+    }
+
+    await scheduleTaskNotifications(
+      incompleteTasks,
+      notificationHour,
+      notificationMinute
+    );
+    saveNotificationTime(notificationHour, notificationMinute);
+    setNotificationsEnabled(true);
+    setNotificationModalVisible(false);
+    Alert.alert(
+      'Notificaciones configuradas',
+      `Recibirás recordatorios diarios a las ${notificationHour
+        .toString()
+        .padStart(2, '0')}:${notificationMinute.toString().padStart(2, '0')}`
+    );
   };
 
   const renderTask = ({ item }: { item: MonthlyTask }) => (
@@ -196,9 +243,20 @@ export default function MonthlyTasksScreen() {
             completadas
           </Text>
         </View>
-        <TouchableOpacity onPress={signOut} style={styles.logoutButton}>
-          <LogOut size={24} color="#ff3b30" />
-        </TouchableOpacity>
+        <View style={styles.headerButtons}>
+          <TouchableOpacity
+            onPress={() => setNotificationModalVisible(true)}
+            style={styles.notificationButton}
+          >
+            <Bell
+              size={24}
+              color={notificationsEnabled ? '#34C759' : '#007AFF'}
+            />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={signOut} style={styles.logoutButton}>
+            <LogOut size={24} color="#ff3b30" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <FlatList
@@ -257,6 +315,99 @@ export default function MonthlyTasksScreen() {
                     updateNotes(editingNotes, notesValue);
                   }
                 }}
+                style={[styles.modalButton, styles.modalButtonSave]}
+              >
+                <Text style={styles.modalButtonTextSave}>Guardar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={notificationModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setNotificationModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Configurar Notificaciones</Text>
+            <Text style={styles.modalSubtitle}>
+              Recibe recordatorios diarios de tus tareas pendientes
+            </Text>
+
+            <View style={styles.timePickerContainer}>
+              <View style={styles.timeInputGroup}>
+                <Text style={styles.timeLabel}>Hora</Text>
+                <View style={styles.timeInputWrapper}>
+                  <TouchableOpacity
+                    onPress={() =>
+                      setNotificationHour(
+                        notificationHour === 0 ? 23 : notificationHour - 1
+                      )
+                    }
+                    style={styles.timeButton}
+                  >
+                    <Text style={styles.timeButtonText}>−</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.timeValue}>
+                    {notificationHour.toString().padStart(2, '0')}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() =>
+                      setNotificationHour(
+                        notificationHour === 23 ? 0 : notificationHour + 1
+                      )
+                    }
+                    style={styles.timeButton}
+                  >
+                    <Text style={styles.timeButtonText}>+</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <Text style={styles.timeSeparator}>:</Text>
+
+              <View style={styles.timeInputGroup}>
+                <Text style={styles.timeLabel}>Minutos</Text>
+                <View style={styles.timeInputWrapper}>
+                  <TouchableOpacity
+                    onPress={() =>
+                      setNotificationMinute(
+                        notificationMinute === 0 ? 59 : notificationMinute - 1
+                      )
+                    }
+                    style={styles.timeButton}
+                  >
+                    <Text style={styles.timeButtonText}>−</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.timeValue}>
+                    {notificationMinute.toString().padStart(2, '0')}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() =>
+                      setNotificationMinute(
+                        notificationMinute === 59 ? 0 : notificationMinute + 1
+                      )
+                    }
+                    style={styles.timeButton}
+                  >
+                    <Text style={styles.timeButtonText}>+</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                onPress={() => setNotificationModalVisible(false)}
+                style={[styles.modalButton, styles.modalButtonCancel]}
+              >
+                <Text style={styles.modalButtonTextCancel}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={setupNotifications}
                 style={[styles.modalButton, styles.modalButtonSave]}
               >
                 <Text style={styles.modalButtonTextSave}>Guardar</Text>
@@ -441,5 +592,65 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'center',
+  },
+  notificationButton: {
+    padding: 8,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 20,
+  },
+  timePickerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+    marginBottom: 24,
+    gap: 8,
+  },
+  timeInputGroup: {
+    alignItems: 'center',
+  },
+  timeLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 8,
+    fontWeight: '600',
+  },
+  timeInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  timeButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: '#f5f5f5',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  timeButtonText: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#007AFF',
+  },
+  timeValue: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    minWidth: 60,
+    textAlign: 'center',
+  },
+  timeSeparator: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    marginBottom: 24,
   },
 });
