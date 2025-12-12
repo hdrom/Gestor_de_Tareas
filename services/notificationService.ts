@@ -19,6 +19,11 @@ export async function scheduleTaskNotifications(
   }
 
   try {
+    if (typeof Notifications.scheduleNotificationAsync !== 'function') {
+      console.log('Notification scheduling not available on this platform');
+      return [];
+    }
+
     // Cancel all existing task notifications
     await cancelAllTaskNotifications();
 
@@ -26,38 +31,46 @@ export async function scheduleTaskNotifications(
 
     // Schedule notification for each incomplete task
     for (const task of tasks) {
-      const notificationId = await Notifications.scheduleNotificationAsync({
-        content: {
-          title: 'Recordatorio de Tareas',
-          body: `No olvides: ${task.title}`,
-          sound: 'default',
-          badge: tasks.length,
-        },
-        trigger: {
-          hour,
-          minute,
-          repeats: true,
-        } as any,
-      });
+      try {
+        const notificationId = await Notifications.scheduleNotificationAsync({
+          content: {
+            title: 'Recordatorio de Tareas',
+            body: `No olvides: ${task.title}`,
+            sound: 'default',
+            badge: tasks.length,
+          },
+          trigger: {
+            hour,
+            minute,
+            repeats: true,
+          } as any,
+        });
 
-      scheduledNotifications.push({
-        taskId: task.id,
-        notificationId,
-        taskTitle: task.title,
-      });
+        scheduledNotifications.push({
+          taskId: task.id,
+          notificationId,
+          taskTitle: task.title,
+        });
+      } catch (taskError) {
+        console.log(`Could not schedule notification for task ${task.id}:`, taskError);
+      }
     }
 
     // Store notification IDs for later reference
     if (scheduledNotifications.length > 0) {
-      localStorage.setItem(
-        NOTIFICATION_STORAGE_KEY,
-        JSON.stringify(scheduledNotifications)
-      );
+      try {
+        localStorage.setItem(
+          NOTIFICATION_STORAGE_KEY,
+          JSON.stringify(scheduledNotifications)
+        );
+      } catch (storageError) {
+        console.log('Could not store notification IDs:', storageError);
+      }
     }
 
     return scheduledNotifications;
   } catch (error) {
-    console.error('Error scheduling task notifications:', error);
+    console.log('Error scheduling task notifications:', error);
     return [];
   }
 }
@@ -68,19 +81,33 @@ export async function cancelAllTaskNotifications() {
   }
 
   try {
-    const stored = localStorage.getItem(NOTIFICATION_STORAGE_KEY);
-    if (stored) {
-      const notifications: TaskNotification[] = JSON.parse(stored);
-      for (const notification of notifications) {
-        await Notifications.cancelScheduledNotificationAsync(notification.notificationId);
+    try {
+      const stored = localStorage.getItem(NOTIFICATION_STORAGE_KEY);
+      if (stored) {
+        const notifications: TaskNotification[] = JSON.parse(stored);
+        for (const notification of notifications) {
+          try {
+            await Notifications.cancelScheduledNotificationAsync(notification.notificationId);
+          } catch (e) {
+            console.log('Could not cancel notification:', e);
+          }
+        }
+        localStorage.removeItem(NOTIFICATION_STORAGE_KEY);
       }
-      localStorage.removeItem(NOTIFICATION_STORAGE_KEY);
+    } catch (storageError) {
+      console.log('Could not access storage:', storageError);
     }
 
     // Also cancel any remaining scheduled notifications
-    await Notifications.cancelAllScheduledNotificationsAsync();
+    if (typeof Notifications.cancelAllScheduledNotificationsAsync === 'function') {
+      try {
+        await Notifications.cancelAllScheduledNotificationsAsync();
+      } catch (e) {
+        console.log('Could not cancel all notifications:', e);
+      }
+    }
   } catch (error) {
-    console.error('Error canceling task notifications:', error);
+    console.log('Error canceling task notifications:', error);
   }
 }
 

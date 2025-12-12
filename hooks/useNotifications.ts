@@ -2,15 +2,19 @@ import * as Notifications from 'expo-notifications';
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+try {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+  });
+} catch (error) {
+  console.log('Notification handler setup not available on this platform');
+}
 
 export function useNotifications() {
   useEffect(() => {
@@ -18,11 +22,15 @@ export function useNotifications() {
       return;
     }
 
-    const subscription = Notifications.addNotificationResponseReceivedListener((response: any) => {
-      console.log('Notification response:', response);
-    });
+    try {
+      const subscription = Notifications.addNotificationResponseReceivedListener((response: any) => {
+        console.log('Notification response:', response);
+      });
 
-    return () => subscription.remove();
+      return () => subscription.remove();
+    } catch (error) {
+      console.log('Notification listeners not available on this platform');
+    }
   }, []);
 
   const requestPermissions = async () => {
@@ -31,10 +39,14 @@ export function useNotifications() {
     }
 
     try {
+      if (typeof Notifications.requestPermissionsAsync !== 'function') {
+        console.log('Notification permissions not available on this platform');
+        return false;
+      }
       const { status } = await Notifications.requestPermissionsAsync();
       return status === 'granted';
     } catch (error) {
-      console.error('Error requesting notification permissions:', error);
+      console.log('Notification permissions not available:', error);
       return false;
     }
   };
